@@ -104,7 +104,7 @@
       "type": "shell",
       "command": "./Private/tools/py.sh",
       "args": [
-        "gui/mx25s1633_gui.py"
+        "gui/App_GUI.py"
       ],
       "windows": {
         "command": "Private/tools/py.cmd",
@@ -119,7 +119,7 @@
           "cwd": "${workspaceFolder}"
         },
         "args": [
-          "gui/mx25s1633_gui.py"
+          "gui/App_GUI.py"
         ]
       },
       "options": {

@@ -3,7 +3,7 @@ REM Build the GUI into a standalone Windows EXE.   Usage: build_win.bat [--no-pa
 REM Output: gui\Win\dist\K1V2SPI_Programmer.exe   Work files: gui\Win\build   (Ubuntu version: gui\Linux)
 setlocal
 cd /d "%~dp0..\.."
-call Private\tools\py.cmd -m PyInstaller --noconfirm --onefile --windowed --name K1V2SPI_Programmer --distpath gui\Win\dist --workpath gui\Win\build --specpath gui\Win\build gui\mx25s1633_gui.py
+call Private\tools\py.cmd -m PyInstaller --noconfirm --onefile --windowed --name K1V2SPI_Programmer --distpath gui\Win\dist --workpath gui\Win\build --specpath gui\Win\build gui\App_GUI.py
 if errorlevel 1 goto :fail
 echo.
 echo Done:  %CD%\gui\Win\dist\K1V2SPI_Programmer.exe

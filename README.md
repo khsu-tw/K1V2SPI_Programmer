@@ -42,7 +42,7 @@ The **User Guide** covers the hardware (architecture, wiring, BOM, loading the f
 
 **Building from source.** `gui/Linux/build_linux.sh` (Ubuntu) and `gui/Linux/build_linux_docker.bat` (Ubuntu build from Windows, with Docker) work from this repository alone.
 `gui/Win/build_win.bat` and the read-back verification step of `firmware/flash_nano.bat` call a helper (`Private/tools/py.cmd`) that is kept in a separate private repository, so they do not work in a plain clone.
-To run the GUI from source instead: `pip install -r gui/requirements-dev.txt`, then `python gui/mx25s1633_gui.py`.
+To run the GUI from source instead: `pip install -r gui/requirements-dev.txt`, then `python gui/App_GUI.py`.
 
 ## Versions
 

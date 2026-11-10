@@ -24,10 +24,10 @@ import flashdb  # noqa: E402
 import hexfile  # noqa: E402
 
 APP_NAME = "K1V2SPI Programmer"
-VERSION = "5.4.1"
+VERSION = "5.5.0"
 GITHUB_URL = "https://github.com/khsu-tw/K1V2SPI_Programmer"
 GITHUB_SHORT = "github.com/khsu-tw/K1V2SPI_Programmer"
-BUILD_DATE = "2026-10-29"           # program update date: change together with VERSION and ChangeHistory.md
+BUILD_DATE = "2026-11-10"           # program update date: change together with VERSION and ChangeHistory.md
 MCU_NAME = "Microchip PIC18F16Q20"
 AUTHOR = "Keynes Hsu"
 AUTHOR_EMAIL = "keynes.hsu@microchip.com"
@@ -552,6 +552,8 @@ class App(tk.Tk):
                   foreground="#777").pack(side="left")
         ttk.Button(bar, text="Close", command=win.destroy).pack(side="right")
         ttk.Button(bar, text="Custom Flash…", command=self.open_custom).pack(side="right", padx=6)
+        ttk.Button(bar, text="Export…", command=lambda: self.export_custom(win)).pack(side="right")
+        ttk.Button(bar, text="Import…", command=lambda: self.import_custom(win)).pack(side="right", padx=6)
         win.bind("<Destroy>", lambda e: setattr(self, "sup_tv", None) if e.widget is win else None)
         self.fill_supported()
         self.place_right(win)
@@ -584,6 +586,87 @@ class App(tk.Tk):
         for e in errors:
             self.log("Custom flash ignored: " + e, "err")
         return errors
+
+    def export_custom(self, parent):
+        """Write ALL custom flash entries to a JSON file chosen by the user."""
+        try:
+            items = flashdb.read_custom_raw(self.custom_file)
+        except ValueError as e:
+            messagebox.showerror("Custom Flash", str(e), parent=parent)
+            return
+        if not items:
+            messagebox.showinfo("Custom Flash", "No custom flash entries to export.", parent=parent)
+            return
+        p = filedialog.asksaveasfilename(parent=parent, title="Export custom SPI flash list",
+                                         defaultextension=".json", initialfile=flashdb.CUSTOM_FILE,
+                                         filetypes=[("JSON", "*.json"), ("All", "*.*")])
+        if not p:
+            return
+        try:
+            flashdb.save_custom(p, items)
+        except (ValueError, OSError) as e:
+            messagebox.showerror("Custom Flash", str(e), parent=parent)
+            return
+        self.log("Custom flash list exported: %d entr%s -> %s" %
+                 (len(items), "y" if len(items) == 1 else "ies", p), "ok")
+
+    def import_custom(self, parent):
+        """Merge ALL entries of a JSON file into the custom list (same JEDEC ID = update)."""
+        p = filedialog.askopenfilename(parent=parent, title="Import custom SPI flash list",
+                                       filetypes=[("JSON", "*.json"), ("All", "*.*")])
+        if not p:
+            return
+        try:
+            src = flashdb.read_custom_raw(p)
+            new = flashdb.read_custom_raw(self.custom_file)
+        except ValueError as e:
+            messagebox.showerror("Custom Flash", str(e), parent=parent)
+            return
+        added = updated = 0
+        skipped = []
+        for n, d in enumerate(src, 1):
+            try:
+                info = flashdb.entry_to_info(d)
+                known = flashdb.KNOWN.get(info.jedec)
+                if known and not known.custom:
+                    raise ValueError("%02X %02X %02X is already a built-in part" % info.jedec)
+            except ValueError as e:
+                skipped.append("entry %d: %s" % (n, e))
+                continue
+            d = dict(d, jedec="%02X %02X %02X" % info.jedec)
+            idx = None
+            for k, x in enumerate(new):
+                try:
+                    if flashdb.parse_jedec(x.get("jedec", "")) == info.jedec:
+                        idx = k
+                        break
+                except ValueError:
+                    pass
+            if idx is None:
+                new.append(d)
+                added += 1
+            else:
+                new[idx] = d
+                updated += 1
+        if not added and not updated:
+            messagebox.showwarning("Custom Flash", ("Nothing imported.\n" + "\n".join(skipped[:10])) if skipped
+                                   else "The file contains no entries.", parent=parent)
+            return
+        try:
+            flashdb.save_custom(self.custom_file, new)
+        except (ValueError, OSError) as e:
+            messagebox.showerror("Custom Flash", str(e), parent=parent)
+            return
+        self.reload_custom()
+        msg = "Custom flash import: %d added, %d updated, %d skipped from %s" % (added, updated, len(skipped), p)
+        self.log(msg, "ok")
+        for s in skipped:
+            self.log("Import skipped " + s, "err")
+        if skipped:
+            messagebox.showwarning("Custom Flash", msg + "\n\n" + "\n".join(skipped[:10]), parent=parent)
+        win = getattr(self, "custom_win", None)
+        if win and win.winfo_exists():
+            win.destroy()  # its list is stale; reopen to see the imported entries
 
     def open_custom(self):
         """Custom Flash dialog: add / edit / delete user-defined SPI-NOR parts (custom_flash.json)."""
@@ -1207,7 +1290,12 @@ class App(tk.Tk):
         self.guard()
         addr = self.parse_hex(self.addr_var, "Address") & ~(SECTOR - 1)
         self.bridge.cmd("SE %X" % addr, timeout=5)
-        self.log("Sector 0x%06X erased." % addr, "ok")
+        d = self.bridge.read(addr, SECTOR)       # a protected sector ignores 20h silently, so check it
+        if d.count(0xFF) != len(d):
+            bad = next(i for i, x in enumerate(d) if x != 0xFF)
+            raise BridgeError("Sector 0x%06X NOT erased: 0x%06X = %02X (expected FF). The sector is probably "
+                              "protected by the BP bits - check with Read SR / Config SR" % (addr, addr + bad, d[bad]))
+        self.log("Sector 0x%06X erased (blank check OK)." % addr, "ok")
 
     def do_chip_erase(self):
         f = self.guard()
@@ -1223,10 +1311,73 @@ class App(tk.Tk):
         if not ans["v"]:
             self.log("Chip erase cancelled.")
             return
+        self._chip_erase(f)
+
+    def protection(self, f):
+        """Block-protect state that makes the flash silently ignore Chip Erase (60h): [] = unprotected.
+        MX25S1633F: CE only if BP3..BP0 = 0. GD25UF16E / W25Q32NE / W25Q65NE: CE only if (BP2..BP0 = 000 and
+        CMP = 0) or (BP2..BP0 = 111 and CMP = 1); GD25UF16E BP4/BP3 are don't-care for CE (DS-01151 6.1)."""
+        info = f["info"]
+        sr = self.bridge.read_sr()
+        bp_bits = [(n, bit) for n, bit in info.sr_bits if n.upper().startswith("BP")]
+        low = [(n, bit) for n, bit in bp_bits if n.upper() in ("BP0", "BP1", "BP2")]
+        # SR2 bit 6 = S14 CMP on the built-in GD25UF16E / W25Q32NE / W25Q65NE (custom parts: layout unknown,
+        # the blank check after the erase still catches an ignored CE)
+        has_cmp = info.has_sr2 and not info.custom
+        cmp_ = bool(has_cmp and self.bridge.read_sr2() & 0x40)
+        # parts with CMP decide CE on BP2..BP0 only; others (MX: BP3..BP0) on every BP bit
+        decide = low if has_cmp and low else bp_bits
+        bits_set = [n for n, bit in decide if sr & (1 << bit)]
+        if cmp_:
+            if decide and len(bits_set) == len(decide):
+                return []          # CMP=1 + BP2..BP0=111: complement of "all" = nothing protected, CE runs
+            why = ["CMP=1 (SR2 bit 6)"] + ["%s=1" % n for n in bits_set]
+        else:
+            why = ["%s=1" % n for n in bits_set]
+        if why:
+            why.insert(0, "SR=0x%02X" % sr)
+        return why
+
+    @staticmethod
+    def protection_hint(why):
+        if any(w.startswith("CMP") for w in why):
+            return ("CMP=1 cannot be cleared by Config SR (it rewrites SR2 unchanged): either tick BP2+BP1+BP0 "
+                    "in Config SR (with CMP=1 that unprotects the whole chip), or clear CMP from Raw Monitor "
+                    "with 'WRSR <SR1> <SR2 with bit 6 = 0>'")
+        return "Clear the BP bits with Config SR -> Default first"
+
+    def _check_blank(self, size, what):
+        """Full blank check: board CRC of every 64 KB block against the CRC of all-FFh (same path as Verify)."""
+        b = self.bridge
+        blank_crc = hexfile.crc32(b"\xff" * VERIFY_CHUNK)
+        self.set_state("BLANK CHECK  空白檢查", "#b36b00", "Blank check")
+        for off in range(0, size, VERIFY_CHUNK):
+            n = min(VERIFY_CHUNK, size - off)
+            want = blank_crc if n == VERIFY_CHUNK else hexfile.crc32(b"\xff" * n)
+            if b.crc(off, n) != want:
+                d = b.read(off, n)
+                bad = next((i for i, x in enumerate(d) if x != 0xFF), None)
+                if bad is not None:
+                    raise BridgeError("%s NOT erased: 0x%06X = %02X (expected FF). The flash ignored the erase - "
+                                      "check the BP bits with Read SR / Config SR" % (what, off + bad, d[bad]))
+            self.set_prog((off + n) * 100.0 / size)
+        return size
+
+    def _chip_erase(self, f):
+        """Chip Erase with the protect pre-check and a blank check afterwards; the flash itself reports nothing
+        when it ignores CE, so an 'OK' alone does not prove the chip was erased."""
+        why = self.protection(f)
+        if why:
+            raise BridgeError("Chip Erase refused: the flash is write-protected (%s) and would ignore CE. %s" %
+                              (", ".join(why), self.protection_hint(why)))
         ce = f["info"].chip_erase_s
         self.log("Chip erase (up to ~%d s) ..." % ce)
+        t0 = time.time()
         self.bridge.cmd("CE", timeout=ce + 20)
-        self.log("Chip erased.", "ok")
+        dt = time.time() - t0
+        self.log("Chip erase command done in %.1f s, blank checking %d KB ..." % (dt, f["size"] // 1024))
+        self._check_blank(f["size"], "Chip")
+        self.log("Chip erased: blank check OK (all %d KB = FF)." % (f["size"] // 1024), "ok")
 
     def _need_file(self):
         if self.fw_data is None:
@@ -1291,6 +1442,11 @@ class App(tk.Tk):
 
         chip = self.chip_var.get() and n > f["size"] // 2
         ce = f["info"].chip_erase_s
+        if chip:
+            why = self.protection(f)
+            if why:
+                raise BridgeError("Chip Erase first refused: the flash is write-protected (%s) and would ignore CE. %s" %
+                                  (", ".join(why), self.protection_hint(why)))
         ops = [("CE", 0, f["size"], ce * 0.8)] if chip else self.plan_erase(start, start + n, f["erase_sizes"])
         verify = self.verify_var.get()
         t_erase = sum(o[3] for o in ops)

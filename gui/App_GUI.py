@@ -431,7 +431,7 @@ class App(tk.Tk):
         line.pack(fill="x", padx=8, pady=(2, 0))
         self.pct_lbl = tk.Label(line, text="0%", width=5, anchor="e", bg="#e9eef3", font=(UI_FONT, 10, "bold"))
         self.pct_lbl.pack(side="right")
-        self.state_lbl = tk.Label(line, text="IDLE  待機", bg="#e9eef3", anchor="w",
+        self.state_lbl = tk.Label(line, text="IDLE", bg="#e9eef3", anchor="w",
                                   font=(UI_FONT, 10, "bold"), fg="#444")
         self.state_lbl.pack(side="left")
         self.msg_lbl = tk.Label(line, text="Load a file, Connect, then run a command.", bg="#e9eef3",
@@ -1112,7 +1112,7 @@ class App(tk.Tk):
 
     def _worker(self, fn):
         name = fn.__name__.replace("do_", "").replace("_", " ").upper()
-        self.set_state("RUNNING  執行中", "#b36b00", name)
+        self.set_state("RUNNING", "#b36b00", name)
         t0 = time.time()
         try:
             self.bridge.cmd("LED 1")
@@ -1120,18 +1120,18 @@ class App(tk.Tk):
             pass
         try:
             fn()
-            self.set_state("DONE  完成", "#0a7a2a", "%s finished in %.1f s" % (name, time.time() - t0))
+            self.set_state("DONE", "#0a7a2a", "%s finished in %.1f s" % (name, time.time() - t0))
             self.set_prog(100)
         except Cancelled:
             self.log("Stopped by user.", "err")
-            self.set_state("STOPPED  已停止", "#c00000", name)
+            self.set_state("STOPPED", "#c00000", name)
             try:
                 self.bridge.flush(0.4, 4.0)
             except Exception:
                 pass
         except Exception as e:
             self.log("[FAIL] %s" % e, "err")
-            self.set_state("FAILED  失敗", "#c00000", str(e))
+            self.set_state("FAILED", "#c00000", str(e))
         finally:
             try:
                 self.bridge.cancel.clear()
@@ -1350,7 +1350,7 @@ class App(tk.Tk):
         """Full blank check: board CRC of every 64 KB block against the CRC of all-FFh (same path as Verify)."""
         b = self.bridge
         blank_crc = hexfile.crc32(b"\xff" * VERIFY_CHUNK)
-        self.set_state("BLANK CHECK  空白檢查", "#b36b00", "Blank check")
+        self.set_state("BLANK CHECK", "#b36b00", "Blank check")
         for off in range(0, size, VERIFY_CHUNK):
             n = min(VERIFY_CHUNK, size - off)
             want = blank_crc if n == VERIFY_CHUNK else hexfile.crc32(b"\xff" * n)
@@ -1465,7 +1465,7 @@ class App(tk.Tk):
                   ", verify" if verify else ""))
 
         done = 0.0
-        self.set_state("ERASING  抹除中", "#b36b00", "Erase")
+        self.set_state("ERASING", "#b36b00", "Erase")
         for i, (cmd, addr, size, est) in enumerate(ops):
             if cmd == "CE":
                 b.cmd("CE", timeout=ce + 20)
@@ -1474,16 +1474,16 @@ class App(tk.Tk):
             done += est
             pct(done)
             if i % 16 == 0 or i == len(ops) - 1:
-                self.set_state("ERASING  抹除中", "#b36b00", "Erase %d%%" % int(done * 100 / total))
+                self.set_state("ERASING", "#b36b00", "Erase %d%%" % int(done * 100 / total))
         self.log("Erase done (%d ops)." % len(ops))
 
-        self.set_state("WRITING  燒錄中", "#b36b00", "Write")
+        self.set_state("WRITING", "#b36b00", "Write")
         for i, (addr, chunk) in enumerate(pages):
             b.write_page(addr, chunk)
             done += T_PAGE
             if i % 32 == 0 or i == len(pages) - 1:
                 pct(done)
-                self.set_state("WRITING  燒錄中", "#b36b00", "Write %d%%" % int(done * 100 / total))
+                self.set_state("WRITING", "#b36b00", "Write %d%%" % int(done * 100 / total))
         b.cmd("SYNC", timeout=3)
         self.log("Program done (%d pages written, %d blank pages skipped)." %
                  (len(pages), (n + PAGE - 1) // PAGE - len(pages)), "ok")
@@ -1496,7 +1496,7 @@ class App(tk.Tk):
         b = self.bridge
         data = self.fw_data
         n = len(data)
-        self.set_state("VERIFYING  驗證中", "#b36b00", "Verify")
+        self.set_state("VERIFYING", "#b36b00", "Verify")
         for off in range(0, n, VERIFY_CHUNK):
             part = data[off:off + VERIFY_CHUNK]
             if b.crc(start + off, len(part)) != hexfile.crc32(part):
@@ -1512,7 +1512,7 @@ class App(tk.Tk):
                 progress(done)
             else:
                 self.set_prog(done * 100.0 / n)
-            self.set_state("VERIFYING  驗證中", "#b36b00", "Verify %d%%" % (done * 100 // n))
+            self.set_state("VERIFYING", "#b36b00", "Verify %d%%" % (done * 100 // n))
         self.log("VERIFY OK  (CRC32 %08X, %d bytes)" % (hexfile.crc32(data), n), "ok")
 
     def do_verify(self):
@@ -1538,10 +1538,10 @@ class App(tk.Tk):
             self.log("Read->File cancelled.")
             return
         rd = 70 if self.dbl_var.get() else 100
-        self.set_state("READING  讀取中", "#b36b00", "Read")
+        self.set_state("READING", "#b36b00", "Read")
         data = self.bridge.read(addr, n, lambda k: self.set_prog(k * rd // n))
         if self.dbl_var.get():
-            self.set_state("CHECKING  確認中", "#b36b00", "Double-check")
+            self.set_state("CHECKING", "#b36b00", "Double-check")
             for off in range(0, n, VERIFY_CHUNK):
                 part = data[off:off + VERIFY_CHUNK]
                 board = self.bridge.crc(addr + off, len(part))

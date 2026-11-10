@@ -283,6 +283,7 @@ class App(tk.Tk):
         if not IS_WIN:
             ttk.Style(self).theme_use("clam")      # closest to the Windows look; Tk's default theme is dated
         self.title("%s v%s" % (APP_NAME, VERSION))
+        self.set_app_icon()
         self.minsize(940, 150)
         self.bridge = None
         self.fw_start = 0
@@ -458,6 +459,16 @@ class App(tk.Tk):
         self.log_text.tag_configure("err", foreground="#ff7b7b")
         self.log_text.tag_configure("ok", foreground="#7bff9b")
         self._set_enabled(False)
+
+    def set_app_icon(self):
+        """Window / taskbar icon from assets/app_icon.png (next to the script, or inside the PyInstaller bundle).
+        A missing or unreadable file is not an error: Tk just keeps its default icon."""
+        base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+        try:
+            self._icon = tk.PhotoImage(file=os.path.join(base, "assets", "app_icon.png"))
+            self.iconphoto(True, self._icon)       # True: pop-up windows (Config SR, About ...) share it
+        except (tk.TclError, OSError):
+            pass
 
     def place_right(self, win):
         """Show a pop-up window to the right of the main window (top-aligned, cascaded if others are open).

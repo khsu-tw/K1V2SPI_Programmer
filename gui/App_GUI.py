@@ -436,7 +436,7 @@ class App(tk.Tk):
                                   font=(UI_FONT, 10, "bold"), fg="#444")
         self.state_lbl.pack(side="left")
         self.msg_lbl = tk.Label(line, text="Load a file, Connect, then run a command.", bg="#e9eef3",
-                                anchor="w", fg="#333")
+                                anchor="w", fg="#333", width=1)     # width=1: the text never sets the window width
         self.msg_lbl.pack(side="left", fill="x", expand=True, padx=(10, 0))
         ttk.Style(self).configure("Slim.Horizontal.TProgressbar", thickness=6)
         self.prog = ttk.Progressbar(sf, maximum=100, style="Slim.Horizontal.TProgressbar")
@@ -843,7 +843,7 @@ class App(tk.Tk):
                 elif kind == "state":
                     self.state_lbl.configure(text=a[0], fg=a[1])
                     if a[2] is not None:
-                        self.msg_lbl.configure(text=a[2])
+                        self.msg_lbl.configure(text=self.one_line(a[2]))
                 elif kind == "prog":
                     self.prog["value"] = a
                     self.pct_lbl.configure(text="%d%%" % int(a))
@@ -870,6 +870,12 @@ class App(tk.Tk):
         except queue.Empty:
             pass
         self.after(50, self._pump)
+
+    @staticmethod
+    def one_line(text, limit=110):
+        """Status-line text: single line, clipped. The full text is always written to the Log."""
+        text = " ".join(str(text).split())
+        return text if len(text) <= limit else text[:limit - 1] + "…"
 
     def log(self, s, tag=None):
         self.q.put(("log", s, tag))
@@ -1097,6 +1103,18 @@ class App(tk.Tk):
         f = getattr(self, "flash", None)
         return min(f["size"], 0x1000000) if f and f["size"] else FLASH_SIZE
 
+    def not_ready_reason(self, err):
+        """One short sentence for 'no usable flash': what is wrong and what to check (details are in the Log)."""
+        f = getattr(self, "flash", None)
+        self.log("Config SR unavailable: " + str(err), "err")
+        if f is None or f["jedec"] in ((0xFF, 0xFF, 0xFF), (0, 0, 0)):
+            return "No response from the flash (ID FF FF FF): check the 1.2 V supply and wiring, then Auto Detect"
+        if not f["known"]:
+            return "Flash ID %02X %02X %02X is not in the supported list: add it with Custom Flash first" % f["jedec"]
+        if self.vio[0] == "bad":
+            return "IO voltage is not 1.2 V: check the supply, then Auto Detect"
+        return "Flash not ready: run Auto Detect (see Log)"
+
     def guard(self):
         """Hard interlock before any program/erase/WRSR: 1.2 V rail and a fully recognised flash.
         The voltage is re-measured every time; the firmware checks it again before each flash write."""
@@ -1185,7 +1203,10 @@ class App(tk.Tk):
             self.log("CR = 0x%02X" % b.read_cr())
 
     def do_config_sr(self):
-        f = self.guard()
+        try:
+            f = self.guard()
+        except BridgeError as e:
+            raise BridgeError(self.not_ready_reason(e)) from None
         layout = f["info"].sr_bits
         done = threading.Event()
         result = {}

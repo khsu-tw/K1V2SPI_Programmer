@@ -25,8 +25,8 @@ import hexfile  # noqa: E402
 
 APP_NAME = "K1V2SPI Programmer"
 VERSION = "5.4.1"
-GITHUB_URL = "https://github.com/khsu-tw/K12SPI_Programmer"
-GITHUB_SHORT = "github.com/khsu-tw/K12SPI_Programmer"
+GITHUB_URL = "https://github.com/khsu-tw/K1V2SPI_Programmer"
+GITHUB_SHORT = "github.com/khsu-tw/K1V2SPI_Programmer"
 BUILD_DATE = "2026-10-29"           # program update date: change together with VERSION and ChangeHistory.md
 MCU_NAME = "Microchip PIC18F16Q20"
 AUTHOR = "Keynes Hsu"

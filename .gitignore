@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 
-# BD/, Datasheet/, tests/, tools/ live in Private/ = the private repo khsu-tw/K12SPI_Programmer_Private (copy it here to build, test, regenerate docs)
+# BD/, Datasheet/, tests/, tools/ live in Private/ = the private repo khsu-tw/K1V2SPI_Programmer_Private (copy it here to build, test, regenerate docs)
 /Private/
 /BD/
 /Datasheet/
